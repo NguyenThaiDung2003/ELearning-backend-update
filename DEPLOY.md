@@ -1,220 +1,121 @@
 # Hướng dẫn deploy
 
-Kiến trúc triển khai: **Vercel** (frontend tĩnh) → **Railway/Render** (backend Docker) → **Aiven/Neon**
-(PostgreSQL) + **Cloudinary** (file nộp bài).
+Backend lên **Railway** (Docker), frontend lên **Vercel**, database dùng **Aiven/Neon**, file nộp bài
+lưu trên **Cloudinary**.
 
-> **Thứ tự quan trọng.** Frontend cần biết URL backend, backend cần biết URL frontend (cho CORS và
-> cookie). Nên phải deploy backend trước, rồi frontend, rồi **quay lại sửa `CLIENT_URL` của backend**.
-> Bỏ bước cuối là đăng nhập sẽ bị CORS chặn.
+> Deploy backend trước để có URL cho frontend, rồi quay lại điền `CLIENT_URL` cho backend. Bỏ bước
+> cuối là đăng nhập bị CORS chặn.
 
----
+## Chuẩn bị
 
-## Bước 0 — Chuẩn bị mã nguồn
+Hai repo đã ở trên GitHub:
 
-Hai repo hiện chưa sẵn sàng để deploy:
+- Backend — `NguyenThaiDung2003/ELearning-backend-update`
+- Frontend — `NguyenThaiDung2003/elearning-web`
 
-**Backend** — toàn bộ code mới đang ở trạng thái chưa commit (commit gần nhất `init` vẫn là bản
-e-learning cũ):
-
-```bash
-cd d:/GITHUB/ELearning-backend-update
-git add -A
-git commit -m "Chuyen sang he thong lop hoc va kiem tra dau gio"
-git push origin main
-```
-
-**Frontend** — chưa phải repo git, phải khởi tạo và đẩy lên GitHub:
-
-```bash
-cd d:/GITHUB/Elearning-web
-git init
-git add -A
-git commit -m "Frontend lop hoc truc tuyen"
-git branch -M main
-git remote add origin https://github.com/<tài-khoản>/elearning-web.git
-git push -u origin main
-```
-
-Kiểm tra `.gitignore` của cả hai repo đã loại `.env*` và `node_modules` — file `.env` chứa mật khẩu
-database thật, tuyệt đối không đẩy lên GitHub. Giá trị cho production đặt trong dashboard của
-Railway và Vercel, không đặt trong file.
-
----
-
-## Bước 1 — Cơ sở dữ liệu
-
-Có thể dùng lại database Aiven đang chạy, hoặc tạo mới trên [Neon](https://neon.tech) /
-[Railway](https://railway.app) (đều có gói miễn phí).
-
-Lấy connection string và **thêm `uselibpqcompat=true`**:
+Connection string của database phải **thêm `uselibpqcompat=true`**, nếu không `pg` v8 sẽ hiểu
+`sslmode=require` thành `verify-full` và báo `self-signed certificate in certificate chain`:
 
 ```
 postgresql://user:pass@host:5432/db?sslmode=require&uselibpqcompat=true
 ```
 
-Thiếu tham số này thì thư viện `pg` v8 sẽ hiểu `sslmode=require` thành `verify-full` và báo lỗi
-`self-signed certificate in certificate chain`.
+Không cần chạy migration bằng tay — container tự chạy `prisma migrate deploy` khi khởi động.
 
-Không cần chạy migration bằng tay: container tự chạy `prisma migrate deploy` khi khởi động.
+## Bước 1 — Backend lên Railway
 
----
+[railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → chọn
+`ELearning-backend-update`. Railway tự nhận `Dockerfile`.
 
-## Bước 2 — Backend lên Railway
+Tab **Variables**:
 
-1. [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → chọn
-   `ELearning-backend-update`.
-2. Railway tự nhận `Dockerfile` ở thư mục gốc và build theo đó.
-3. Vào tab **Variables**, thêm các biến (mẫu đầy đủ trong `.env.production.example`):
+| Biến | Giá trị |
+| --- | --- |
+| `NODE_ENV` | `production` |
+| `DATABASE_URL` | connection string ở trên |
+| `CLIENT_URL` | để trống, điền ở bước 3 |
+| `JWT_ACCESS_SECRET` | chuỗi ngẫu nhiên mạnh |
+| `JWT_REFRESH_SECRET` | chuỗi ngẫu nhiên **khác** |
+| `CLOUDINARY_CLOUD_NAME` · `CLOUDINARY_API_KEY` · `CLOUDINARY_API_SECRET` | từ dashboard Cloudinary |
+| `TRUST_PROXY` | `1` — thiếu thì rate limit đếm theo IP của proxy, cả lớp dùng chung hạn mức |
+| `RATE_LIMIT_MAX` · `AUTH_RATE_LIMIT_MAX` | `1000` · `50` (mặc định, có thể bỏ qua) |
 
-   | Biến | Giá trị |
-   | --- | --- |
-   | `NODE_ENV` | `production` |
-   | `PORT` | `5000` |
-   | `DATABASE_URL` | connection string ở bước 1 |
-   | `CLIENT_URL` | tạm để trống, điền ở bước 4 |
-   | `JWT_ACCESS_SECRET` | chuỗi ngẫu nhiên mạnh |
-   | `JWT_REFRESH_SECRET` | chuỗi ngẫu nhiên **khác** |
-   | `CLOUDINARY_CLOUD_NAME` | từ dashboard Cloudinary |
-   | `CLOUDINARY_API_KEY` | |
-   | `CLOUDINARY_API_SECRET` | |
-   | `RATE_LIMIT_MAX` | `1000` |
-   | `AUTH_RATE_LIMIT_MAX` | `50` |
+Sinh secret: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
 
-   Sinh secret:
+Sau đó **Settings → Networking → Generate Domain**, rồi mở `https://<backend>.up.railway.app/health`
+để kiểm tra, phải trả `{"status":"ok",...}`.
 
-   ```bash
-   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
-   ```
 
-4. Tab **Settings** → **Networking** → **Generate Domain** để lấy domain public.
-5. Kiểm tra: mở `https://<backend>.up.railway.app/health`, phải thấy `{"status":"ok",...}`.
+## Bước 2 — Frontend lên Vercel
 
-**Nếu dùng Render thay Railway**: New → Web Service → Runtime **Docker**, Health Check Path `/health`,
-phần biến môi trường làm y hệt. Lưu ý gói miễn phí của Render **ngủ sau 15 phút không có request** —
-request đầu tiên mất 30–60 giây, rất bất tiện khi demo mở bài đầu giờ. Railway không có vấn đề này.
+[vercel.com](https://vercel.com) → **Add New Project** → import `elearning-web`. Vercel tự nhận Vite,
+giữ nguyên Build Command và Output Directory.
 
----
+Thêm biến môi trường:
 
-## Bước 3 — Frontend lên Vercel
+```
+VITE_API_URL = https://<backend>.up.railway.app/api
+```
 
-1. [vercel.com](https://vercel.com) → **Add New Project** → import repo `elearning-web`.
-2. Vercel tự nhận Vite. Giữ nguyên: Build Command `npm run build`, Output Directory `dist`.
-3. **Environment Variables** → thêm:
+Nhớ **hậu tố `/api`** — thiếu là mọi lời gọi API đều 404. Đây là biến build-time, sửa xong phải
+deploy lại mới có tác dụng.
 
-   ```
-   VITE_API_URL = https://<backend>.up.railway.app/api
-   ```
+## Bước 3 — Nối hai đầu
 
-   Nhớ **hậu tố `/api`** — thiếu là mọi lời gọi API đều 404.
-
-4. Deploy, lấy domain dạng `https://<tên>.vercel.app`.
-
-File `vercel.json` đã có sẵn rewrite mọi đường dẫn về `index.html`, nên tải thẳng `/classes/abc` hay
-F5 giữa chừng không bị 404.
-
----
-
-## Bước 4 — Nối hai đầu lại
-
-Quay lại Railway, sửa biến `CLIENT_URL` thành domain Vercel rồi để service khởi động lại:
+Quay lại Railway, đặt `CLIENT_URL` thành domain Vercel rồi để service khởi động lại:
 
 ```
 CLIENT_URL = https://<tên>.vercel.app
 ```
 
-Nhiều domain thì ngăn bằng dấu phẩy:
+Nhiều domain thì ngăn bằng dấu phẩy (Vercel sinh domain preview riêng cho mỗi lần push).
 
-```
-CLIENT_URL = https://elearning.vercel.app,https://elearning-git-main.vercel.app
-```
+## Bước 4 — Dữ liệu demo
 
-Vercel sinh domain preview riêng cho mỗi lần push; nếu cần demo trên bản preview thì thêm domain đó
-vào danh sách.
-
----
-
-## Bước 5 — Tạo dữ liệu demo trên production
-
-Seed chạy từ máy bạn, trỏ vào database production:
-
-```bash
-cd d:/GITHUB/ELearning-backend-update
-DATABASE_URL="<connection string production>" npm run seed
-```
-
-Trên PowerShell:
+Chạy seed từ máy bạn, trỏ vào database production:
 
 ```powershell
 $env:DATABASE_URL="<connection string production>"; npm run seed
 ```
 
-Sau đó đăng nhập `gv.web@elearning.local` / `123456` để kiểm tra.
-
-> Seed tạo tài khoản mật khẩu `123456`. Nếu hệ thống dùng thật thì phải đổi mật khẩu hoặc xoá các
-> tài khoản demo trước.
-
----
+Đăng nhập `gv.web@elearning.local` / `123456` để kiểm tra. Seed đặt mật khẩu `123456` cho mọi tài
+khoản — dùng thật thì phải đổi hoặc xoá tài khoản demo.
 
 ## Kiểm tra sau khi deploy
 
-| # | Việc kiểm | Đạt khi |
-| --- | --- | --- |
-| 1 | Mở `/health` của backend | trả `{"status":"ok"}` |
-| 2 | Đăng nhập trên web production | vào được bảng điều khiển, không lỗi CORS ở Console |
-| 3 | Để yên 20 phút rồi thao tác tiếp | không bị đá ra trang đăng nhập (refresh token chạy) |
-| 4 | Giảng viên mở bài, sinh viên làm bài | đồng hồ chạy, nộp được, có điểm ngay |
-| 5 | Nộp bài thực hành kèm file | file tải lên Cloudinary, mở lại được |
-| 6 | Xuất CSV bảng điểm | tải về đúng file, tiếng Việt không lỗi phông |
+1. `/health` trả `{"status":"ok"}`
+2. Đăng nhập được, Console không có lỗi CORS
+3. **Để yên 20 phút rồi thao tác tiếp** — không bị đá ra trang đăng nhập
+4. Giảng viên mở bài → sinh viên làm bài → nộp có điểm ngay
+5. Nộp bài thực hành kèm file, mở lại được
+6. Xuất CSV bảng điểm, tiếng Việt không lỗi phông
 
-Mục 3 là phép thử quan trọng nhất: nó xác nhận cookie refresh token đi được giữa hai tên miền khác
-nhau (`SameSite=None; Secure`, mã nguồn tự bật khi `NODE_ENV=production`).
-
----
+Mục 3 quan trọng nhất: access token chỉ sống 15 phút, nên lỗi cookie refresh chỉ lộ ra sau khoảng
+thời gian đó chứ không phải ngay lúc đăng nhập.
 
 ## Lỗi thường gặp
 
-| Triệu chứng | Nguyên nhân | Cách xử lý |
-| --- | --- | --- |
-| `blocked by CORS policy` khi đăng nhập | `CLIENT_URL` chưa đúng domain Vercel | Sửa biến ở bước 4, chờ service restart |
-| Mọi API trả 404 | `VITE_API_URL` thiếu `/api` | Sửa biến trên Vercel rồi **redeploy** (biến build-time) |
-| `self-signed certificate in certificate chain` | Connection string thiếu `uselibpqcompat=true` | Thêm tham số vào `DATABASE_URL` |
-| Đăng nhập được nhưng ~15 phút sau bị đá ra | Cookie refresh không qua được cross-site | Kiểm tra `NODE_ENV=production` đã đặt trên Railway |
-| Cả lớp đăng nhập thì bị chặn | Rate limit quá chặt cho IP dùng chung | Tăng `AUTH_RATE_LIMIT_MAX` |
-| Container khởi động lỗi ở `migrate deploy` | `DATABASE_URL` sai hoặc DB chưa cho kết nối ngoài | Xem log Railway, kiểm tra whitelist IP của DB |
-| Upload file thất bại | Thiếu biến Cloudinary | Điền đủ ba biến `CLOUDINARY_*` |
-| Build image lỗi `PrismaConfigEnvError: Cannot resolve environment variable: DATABASE_URL` | `prisma generate` nạp `prisma.config.ts`, mà lúc build image chưa có biến thật | Đã xử lý: Dockerfile truyền `DATABASE_URL` giả cho các lệnh build |
-| Container khởi động lỗi `@prisma/client did not initialize yet` | Thiếu thư mục `node_modules/.prisma` trong image | Đã xử lý: Dockerfile copy cả `.prisma` lẫn `@prisma/client` |
-
----
+| Triệu chứng | Cách xử lý |
+| --- | --- |
+| `blocked by CORS policy` khi đăng nhập | `CLIENT_URL` chưa đúng domain Vercel |
+| Mọi API trả 404 | `VITE_API_URL` thiếu `/api`; sửa xong phải deploy lại |
+| `self-signed certificate in certificate chain` | Thiếu `uselibpqcompat=true` trong `DATABASE_URL` |
+| Đăng nhập được nhưng ~15 phút sau bị đá ra | Cookie refresh không lưu được — kiểm tra `NODE_ENV=production` và frontend chạy HTTPS |
+| Cả lớp đăng nhập thì bị chặn | Đặt `TRUST_PROXY=1`, nếu vẫn thiếu thì tăng `AUTH_RATE_LIMIT_MAX` |
+| Container lỗi ở `migrate deploy` | `DATABASE_URL` sai hoặc DB chưa cho kết nối ngoài — xem log Railway |
+| Upload file thất bại | Thiếu ba biến `CLOUDINARY_*` |
 
 ## Ghi chú về Dockerfile
 
-```dockerfile
-FROM node:20-alpine AS builder      # cài đủ gói, generate Prisma Client, biên dịch TypeScript
-FROM node:20-alpine                 # chỉ giữ dist + gói production
-CMD prisma migrate deploy && node dist/index.js
-```
+Hai tầng: builder generate Prisma Client rồi biên dịch TypeScript, tầng chạy chỉ giữ `dist` và gói
+production. Ba điểm đã xử lý sẵn, đừng sửa nhầm:
 
-Bốn điểm đã xử lý sẵn, nêu ra để khi sửa không phá nhầm:
+1. **`DATABASE_URL` giả lúc build** — `prisma.config.ts` gọi `env("DATABASE_URL")` và ném lỗi nếu
+   biến không resolve được, trong khi lúc build image chưa có biến thật. Giá trị giả truyền inline
+   nên không dính vào image.
+2. **Copy cả `.prisma` lẫn `@prisma/client`** — `@prisma/client` chỉ là lớp vỏ re-export từ
+   `.prisma/client`; thiếu thư mục đó thì container chết ngay với *"did not initialize yet"*.
+3. **`prisma.config.ts` phải có trong image** — Prisma 7 đọc `DATABASE_URL` từ đó chứ không phải từ
+   `schema.prisma`.
 
-1. **`DATABASE_URL` giả lúc build.** `prisma.config.ts` gọi `env("DATABASE_URL")` và **ném lỗi** nếu
-   biến không resolve được. Lúc build image thì chưa có biến thật, nên Dockerfile truyền một giá trị
-   giả cho các lệnh build. Giá trị này truyền inline, không dính vào image, để lúc chạy nó không che
-   mất trường hợp quên đặt biến thật.
-2. **`prisma.config.ts` bắt buộc có trong image** — Prisma 7 đọc `DATABASE_URL` từ file này chứ
-   không phải từ `schema.prisma` (v7 từ chối khai báo `url` trong khối `datasource`).
-3. **Copy cả `.prisma` lẫn `@prisma/client`.** `@prisma/client/index.js` chỉ là lớp vỏ
-   `require('.prisma/client/default')`; thiếu thư mục `.prisma` (9 MB) thì container chết ngay khi
-   khởi động với lỗi *"@prisma/client did not initialize yet"*.
-4. **`.dockerignore` loại `node_modules` và `.env`** — vừa tránh lỗi do gói biên dịch cho Windows,
-   vừa tránh đóng gói nhầm khoá bí mật vào image.
 
-Chưa build thử bằng Docker vì máy phát triển không cài Docker, nhưng từng bước trong Dockerfile đã
-được chạy riêng và kiểm chứng: `prisma generate` với `DATABASE_URL` giả (thành công), `npm run build`,
-`prisma migrate deploy` (báo *No pending migrations*), và `node dist/index.js` — bản biên dịch khởi
-động được và trả `200` cho request đăng nhập. Muốn chắc chắn hoàn toàn:
-
-```bash
-docker build -t elearning-api .
-docker run -p 5000:5000 --env-file .env elearning-api
-```

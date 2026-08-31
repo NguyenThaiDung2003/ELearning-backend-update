@@ -6,5 +6,9 @@ dist
 !.env.example
 *.log
 scripts
+docs
 API.md
+DEPLOY.md
 BAOCAO.md
+BAOCAO-DAY-DU.md
+BAOCAO.docx
