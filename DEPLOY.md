@@ -57,9 +57,7 @@ Thêm biến môi trường:
 VITE_API_URL = https://<backend>.up.railway.app/api
 ```
 
-Nhớ **hậu tố `/api`** — thiếu là mọi lời gọi API đều 404. Đây là biến build-time, sửa xong phải
-deploy lại mới có tác dụng.
-
+Nhớ **hậu tố `/api`** 
 ## Bước 3 — Nối hai đầu
 
 Quay lại Railway, đặt `CLIENT_URL` thành domain Vercel rồi để service khởi động lại:
@@ -108,7 +106,7 @@ thời gian đó chứ không phải ngay lúc đăng nhập.
 ## Ghi chú về Dockerfile
 
 Hai tầng: builder generate Prisma Client rồi biên dịch TypeScript, tầng chạy chỉ giữ `dist` và gói
-production. Ba điểm đã xử lý sẵn, đừng sửa nhầm:
+production :
 
 1. **`DATABASE_URL` giả lúc build** — `prisma.config.ts` gọi `env("DATABASE_URL")` và ném lỗi nếu
    biến không resolve được, trong khi lúc build image chưa có biến thật. Giá trị giả truyền inline

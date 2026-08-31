@@ -21,9 +21,13 @@ const port = Number(process.env.PORT) || 5000;
 const isProduction = process.env.NODE_ENV === "production";
 
 // CLIENT_URL nhan nhieu domain, ngan cach bang dau phay.
+// Header Origin cua trinh duyet khong bao gio co dau / o cuoi, nen phai cat di,
+// neu khong "https://abc.vercel.app/" se khong bao gio khop.
+const normalizeOrigin = (value: string) => value.trim().replace(/\/+$/, "").toLowerCase();
+
 const allowedOrigins = (process.env.CLIENT_URL ?? "")
   .split(",")
-  .map((origin) => origin.trim())
+  .map(normalizeOrigin)
   .filter(Boolean);
 
 const LOCALHOST_PATTERN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
@@ -34,7 +38,7 @@ const resolveCorsOrigin: CorsOptions["origin"] = (origin, callback) => {
     return callback(null, true);
   }
 
-  if (allowedOrigins.includes(origin)) {
+  if (allowedOrigins.includes(normalizeOrigin(origin))) {
     return callback(null, true);
   }
 
@@ -48,6 +52,14 @@ const resolveCorsOrigin: CorsOptions["origin"] = (origin, callback) => {
   if (!isProduction && LOCALHOST_PATTERN.test(origin)) {
     return callback(null, true);
   }
+
+  // Log ra de xem trong Railway logs: doi chieu origin that voi CLIENT_URL
+  // nhanh hon nhieu so voi doan mo.
+  console.warn(
+    `CORS tu choi origin "${origin}". CLIENT_URL dang cho phep: ${
+      allowedOrigins.length ? allowedOrigins.join(", ") : "(trong)"
+    }`,
+  );
 
   // 403 thay vi de error middleware tra 500: origin la khong phai loi server.
   return callback(forbidden(`Origin khong duoc phep: ${origin}`));
@@ -76,6 +88,11 @@ const authLimiter = rateLimit({
     message: "Too many authentication requests, please try again later.",
   },
 });
+
+// Sau reverse proxy cua Railway, req.ip mac dinh la IP cua proxy nen ca lop se
+// dung chung mot han muc rate limit. Khai bao so tang proxy de Express lay IP
+// that tu X-Forwarded-For; dung so cu the thay vi "true" de khong gia mao duoc.
+app.set("trust proxy", Number(process.env.TRUST_PROXY ?? (isProduction ? 1 : 0)));
 
 app.use(helmet());
 app.use(compression());
