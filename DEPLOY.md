@@ -182,6 +182,8 @@ nhau (`SameSite=None; Secure`, mã nguồn tự bật khi `NODE_ENV=production`)
 | Cả lớp đăng nhập thì bị chặn | Rate limit quá chặt cho IP dùng chung | Tăng `AUTH_RATE_LIMIT_MAX` |
 | Container khởi động lỗi ở `migrate deploy` | `DATABASE_URL` sai hoặc DB chưa cho kết nối ngoài | Xem log Railway, kiểm tra whitelist IP của DB |
 | Upload file thất bại | Thiếu biến Cloudinary | Điền đủ ba biến `CLOUDINARY_*` |
+| Build image lỗi `PrismaConfigEnvError: Cannot resolve environment variable: DATABASE_URL` | `prisma generate` nạp `prisma.config.ts`, mà lúc build image chưa có biến thật | Đã xử lý: Dockerfile truyền `DATABASE_URL` giả cho các lệnh build |
+| Container khởi động lỗi `@prisma/client did not initialize yet` | Thiếu thư mục `node_modules/.prisma` trong image | Đã xử lý: Dockerfile copy cả `.prisma` lẫn `@prisma/client` |
 
 ---
 
@@ -193,18 +195,24 @@ FROM node:20-alpine                 # chỉ giữ dist + gói production
 CMD prisma migrate deploy && node dist/index.js
 ```
 
-Ba điểm đã xử lý sẵn, nêu ra để khi sửa không phá nhầm:
+Bốn điểm đã xử lý sẵn, nêu ra để khi sửa không phá nhầm:
 
-1. **`prisma.config.ts` bắt buộc có trong image** — Prisma 7 đọc `DATABASE_URL` từ file này chứ
+1. **`DATABASE_URL` giả lúc build.** `prisma.config.ts` gọi `env("DATABASE_URL")` và **ném lỗi** nếu
+   biến không resolve được. Lúc build image thì chưa có biến thật, nên Dockerfile truyền một giá trị
+   giả cho các lệnh build. Giá trị này truyền inline, không dính vào image, để lúc chạy nó không che
+   mất trường hợp quên đặt biến thật.
+2. **`prisma.config.ts` bắt buộc có trong image** — Prisma 7 đọc `DATABASE_URL` từ file này chứ
    không phải từ `schema.prisma` (v7 từ chối khai báo `url` trong khối `datasource`).
-2. **Prisma Client được copy từ tầng builder** thay vì generate lại ở tầng runtime, nên lúc build
-   image không cần `DATABASE_URL`.
-3. **`.dockerignore` loại `node_modules` và `.env`** — vừa tránh lỗi do gói biên dịch cho Windows,
+3. **Copy cả `.prisma` lẫn `@prisma/client`.** `@prisma/client/index.js` chỉ là lớp vỏ
+   `require('.prisma/client/default')`; thiếu thư mục `.prisma` (9 MB) thì container chết ngay khi
+   khởi động với lỗi *"@prisma/client did not initialize yet"*.
+4. **`.dockerignore` loại `node_modules` và `.env`** — vừa tránh lỗi do gói biên dịch cho Windows,
    vừa tránh đóng gói nhầm khoá bí mật vào image.
 
-Dockerfile này **chưa được build thử** vì máy phát triển không cài Docker. Đã kiểm tra được phần suy
-luận: mọi package dùng lúc chạy đều nằm ở `dependencies`, và `prisma` CLI cũng vậy nên
-`npx prisma migrate deploy` chạy được sau `npm ci --omit=dev`. Muốn chắc chắn:
+Chưa build thử bằng Docker vì máy phát triển không cài Docker, nhưng từng bước trong Dockerfile đã
+được chạy riêng và kiểm chứng: `prisma generate` với `DATABASE_URL` giả (thành công), `npm run build`,
+`prisma migrate deploy` (báo *No pending migrations*), và `node dist/index.js` — bản biên dịch khởi
+động được và trả `200` cho request đăng nhập. Muốn chắc chắn hoàn toàn:
 
 ```bash
 docker build -t elearning-api .
