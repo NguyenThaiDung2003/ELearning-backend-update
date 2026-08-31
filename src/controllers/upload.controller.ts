@@ -1,41 +1,39 @@
 import { Response } from "express";
 
 import { AuthenticatedRequest } from "../middleware/auth.middleware";
-import { cloudinary } from "../utils/cloudinary";
-import { sendError, sendSuccess } from "../utils/response";
-
-const uploadBufferToCloudinary = (buffer: Buffer) =>
-  new Promise<string>((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: "elearning",
-        resource_type: "image",
-      },
-      (error, result) => {
-        if (error || !result) {
-          reject(error ?? new Error("Cloudinary upload failed"));
-          return;
-        }
-
-        resolve(result.secure_url);
-      },
-    );
-
-    stream.end(buffer);
-  });
+import { asyncHandler } from "../utils/async-handler";
+import { badRequest } from "../utils/errors";
+import { uploadBuffer } from "../utils/cloudinary";
+import { sendSuccess } from "../utils/response";
 
 export class UploadController {
-  static async uploadImage(req: AuthenticatedRequest, res: Response) {
-    try {
-      if (!req.file) {
-        return sendError(res, "Vui long chon file anh", 400);
-      }
-
-      const url = await uploadBufferToCloudinary(req.file.buffer);
-      return sendSuccess(res, { url }, 201);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to upload image";
-      return sendError(res, message, 500);
+  static uploadImage = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    if (!req.file) {
+      throw badRequest("Vui long chon file anh");
     }
-  }
+
+    const uploaded = await uploadBuffer(req.file.buffer, {
+      folder: "elearning/images",
+      resource_type: "image",
+    });
+
+    return sendSuccess(res, uploaded, 201);
+  });
+
+  /** File nop bai: pdf, zip, doc... nen dung resource_type "raw"/"auto". */
+  static uploadSubmission = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    if (!req.file) {
+      throw badRequest("Vui long chon file bai lam");
+    }
+
+    const uploaded = await uploadBuffer(req.file.buffer, {
+      folder: "elearning/submissions",
+      resource_type: "auto",
+      use_filename: true,
+      unique_filename: true,
+      filename_override: req.file.originalname,
+    });
+
+    return sendSuccess(res, { ...uploaded, originalName: req.file.originalname }, 201);
+  });
 }

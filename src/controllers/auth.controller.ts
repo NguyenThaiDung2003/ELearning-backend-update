@@ -13,10 +13,15 @@ import {
 } from "../validators/auth.validator";
 
 const REFRESH_COOKIE_NAME = "refreshToken";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+// Khi deploy, frontend (Vercel) va backend (Railway) khac domain nen cookie
+// phai la SameSite=None + Secure, neu khong trinh duyet se khong gui kem
+// refresh token. O local thi giu Strict cho an toan.
 const REFRESH_COOKIE_OPTIONS = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict" as const,
+    secure: IS_PRODUCTION,
+    sameSite: IS_PRODUCTION ? ("none" as const) : ("strict" as const),
     maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 

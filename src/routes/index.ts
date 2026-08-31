@@ -1,12 +1,12 @@
 import { Router } from "express";
 
 import adminRoutes from "./admin.routes";
+import assignmentRoutes from "./assignment.routes";
 import authRoutes from "./auth.routes";
-import courseRoutes from "./course.routes";
-import enrollmentRoutes from "./enrollment.routes";
-import lessonRoutes from "./lesson.routes";
-import paymentRoutes from "./payment.routes";
-import progressRoutes from "./progress.routes";
+import classRoutes from "./class.routes";
+import questionRoutes from "./question.routes";
+import sessionRoutes from "./session.routes";
+import submissionRoutes from "./submission.routes";
 import uploadRoutes from "./upload.routes";
 
 const router = Router();
@@ -19,12 +19,12 @@ router.get("/", (_req, res) => {
 });
 
 router.use("/admin", adminRoutes);
+router.use("/assignments", assignmentRoutes);
 router.use("/auth", authRoutes);
-router.use("/courses", courseRoutes);
-router.use("/enrollments", enrollmentRoutes);
-router.use("/lessons", lessonRoutes);
-router.use("/payments", paymentRoutes);
-router.use("/progress", progressRoutes);
+router.use("/classes", classRoutes);
+router.use("/questions", questionRoutes);
+router.use("/sessions", sessionRoutes);
+router.use("/submissions", submissionRoutes);
 router.use("/upload", uploadRoutes);
 
 export default router;
